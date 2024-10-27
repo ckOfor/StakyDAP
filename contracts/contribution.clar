@@ -143,3 +143,29 @@
     (ok true)
   )
 )
+
+;; Project completion function
+(define-public (complete-project (token <ft-trait>) (project-id uint))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (get is-active project) err-project-closed)
+
+    ;; Transfer accumulated funds to beneficiary
+    (try! (as-contract (contract-call? token transfer
+      (get current-amount project)
+      (as-contract tx-sender)
+      (get beneficiary project)
+    )))
+
+    ;; Mark project as inactive
+    (map-set projects
+      project-id
+      (merge project { is-active: false })
+    )
+
+    (ok true)
+  )
+)
