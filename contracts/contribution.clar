@@ -1,0 +1,174 @@
+;; contribution.clar
+
+;; Define token trait for fungible token interactions
+(define-trait ft-trait
+  (
+    ;; Function to transfer tokens
+    (transfer (uint principal principal) (response bool uint))
+    ;; Function to get balance
+    (get-balance (principal) (response uint uint))
+  )
+)
+
+;; Constants
+(define-constant contract-owner tx-sender)
+(define-constant err-owner-only (err u100))
+(define-constant err-unknown-project (err u101))
+(define-constant err-insufficient-balance (err u102))
+(define-constant err-project-exists (err u103))
+(define-constant err-project-closed (err u104))
+(define-constant err-below-minimum (err u105))
+
+;; Project status types
+(define-data-var project-id-nonce uint u0)
+
+;; Data maps
+(define-map projects
+  uint  ;; project-id
+  {
+    name: (string-ascii 50),
+    description: (string-ascii 500),
+    target-amount: uint,
+    minimum-contribution: uint,
+    current-amount: uint,
+    beneficiary: principal,
+    is-active: bool,
+    end-block: uint
+  }
+)
+
+(define-map contributions
+  {project-id: uint, contributor: principal}
+  {
+    amount: uint,
+    block-height: uint
+  }
+)
+
+;; Project management functions
+(define-public (create-project
+    (name (string-ascii 50))
+    (description (string-ascii 500))
+    (target-amount uint)
+    (minimum-contribution uint)
+    (beneficiary principal)
+    (duration uint)  ;; number of blocks project will run
+  )
+  (let
+    (
+      (project-id (var-get project-id-nonce))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (is-none (map-get? projects project-id)) err-project-exists)
+
+    (map-set projects
+      project-id
+      {
+        name: name,
+        description: description,
+        target-amount: target-amount,
+        minimum-contribution: minimum-contribution,
+        current-amount: u0,
+        beneficiary: beneficiary,
+        is-active: true,
+        end-block: (+ block-height duration)
+      }
+    )
+
+    (var-set project-id-nonce (+ project-id u1))
+    (ok project-id)
+  )
+)
+
+;; Contribution functions
+(define-public (contribute (token <ft-trait>) (project-id uint) (amount uint))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+      (current-balance (unwrap! (contract-call? token get-balance tx-sender) (err u500)))
+    )
+    (asserts! (>= current-balance amount) err-insufficient-balance)
+    (asserts! (get is-active project) err-project-closed)
+    (asserts! (<= block-height (get end-block project)) err-project-closed)
+    (asserts! (>= amount (get minimum-contribution project)) err-below-minimum)
+
+    ;; Transfer tokens to contract
+    (try! (contract-call? token transfer
+      amount
+      tx-sender
+      (as-contract tx-sender)
+    ))
+
+    ;; Update project total
+    (map-set projects
+      project-id
+      (merge project { current-amount: (+ (get current-amount project) amount) })
+    )
+
+    ;; Record contribution
+    (map-set contributions
+      {project-id: project-id, contributor: tx-sender}
+      {
+        amount: (+ (default-to u0 (get amount (map-get? contributions {project-id: project-id, contributor: tx-sender}))) amount),
+        block-height: block-height
+      }
+    )
+
+    (ok true)
+  )
+)
+
+;; Project completion function
+(define-public (complete-project (token <ft-trait>) (project-id uint))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (get is-active project) err-project-closed)
+
+    ;; Transfer accumulated funds to beneficiary
+    (try! (as-contract (contract-call? token transfer
+      (get current-amount project)
+      (as-contract tx-sender)
+      (get beneficiary project)
+    )))
+
+    ;; Mark project as inactive
+    (map-set projects
+      project-id
+      (merge project { is-active: false })
+    )
+
+    (ok true)
+  )
+)
+
+;; Read-only functions
+(define-read-only (get-project (project-id uint))
+  (ok (map-get? projects project-id))
+)
+
+(define-read-only (get-contribution (project-id uint) (contributor principal))
+  (ok (map-get? contributions {project-id: project-id, contributor: contributor}))
+)
+
+(define-read-only (get-project-count)
+  (ok (var-get project-id-nonce))
+)
+
+;; Admin functions
+(define-public (update-project-status (project-id uint) (is-active bool))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+
+    (map-set projects
+      project-id
+      (merge project { is-active: is-active })
+    )
+    (ok true)
+  )
+)
