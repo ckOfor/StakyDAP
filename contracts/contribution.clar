@@ -44,3 +44,29 @@
     block-height: uint
   }
 )
+
+;; Project status types
+(define-data-var project-id-nonce uint u0)
+
+;; Data maps
+(define-map projects
+  uint  ;; project-id
+  {
+    name: (string-ascii 50),
+    description: (string-ascii 500),
+    target-amount: uint,
+    minimum-contribution: uint,
+    current-amount: uint,
+    beneficiary: principal,
+    is-active: bool,
+    end-block: uint
+  }
+)
+
+(define-map contributions
+  {project-id: uint, contributor: principal}
+  {
+    amount: uint,
+    block-height: uint
+  }
+)
