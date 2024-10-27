@@ -70,3 +70,38 @@
     block-height: uint
   }
 )
+
+;; Project management functions
+(define-public (create-project
+    (name (string-ascii 50))
+    (description (string-ascii 500))
+    (target-amount uint)
+    (minimum-contribution uint)
+    (beneficiary principal)
+    (duration uint)  ;; number of blocks project will run
+  )
+  (let
+    (
+      (project-id (var-get project-id-nonce))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (is-none (map-get? projects project-id)) err-project-exists)
+
+    (map-set projects
+      project-id
+      {
+        name: name,
+        description: description,
+        target-amount: target-amount,
+        minimum-contribution: minimum-contribution,
+        current-amount: u0,
+        beneficiary: beneficiary,
+        is-active: true,
+        end-block: (+ block-height duration)
+      }
+    )
+
+    (var-set project-id-nonce (+ project-id u1))
+    (ok project-id)
+  )
+)
