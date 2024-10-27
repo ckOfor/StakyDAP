@@ -169,3 +169,32 @@
     (ok true)
   )
 )
+
+;; Read-only functions
+(define-read-only (get-project (project-id uint))
+  (ok (map-get? projects project-id))
+)
+
+(define-read-only (get-contribution (project-id uint) (contributor principal))
+  (ok (map-get? contributions {project-id: project-id, contributor: contributor}))
+)
+
+(define-read-only (get-project-count)
+  (ok (var-get project-id-nonce))
+)
+
+;; Admin functions
+(define-public (update-project-status (project-id uint) (is-active bool))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+
+    (map-set projects
+      project-id
+      (merge project { is-active: is-active })
+    )
+    (ok true)
+  )
+)
