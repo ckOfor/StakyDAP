@@ -105,3 +105,41 @@
     (ok project-id)
   )
 )
+
+;; Contribution functions
+(define-public (contribute (token <ft-trait>) (project-id uint) (amount uint))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) err-unknown-project))
+      (current-balance (unwrap! (contract-call? token get-balance tx-sender) (err u500)))
+    )
+    (asserts! (>= current-balance amount) err-insufficient-balance)
+    (asserts! (get is-active project) err-project-closed)
+    (asserts! (<= block-height (get end-block project)) err-project-closed)
+    (asserts! (>= amount (get minimum-contribution project)) err-below-minimum)
+
+    ;; Transfer tokens to contract
+    (try! (contract-call? token transfer
+      amount
+      tx-sender
+      (as-contract tx-sender)
+    ))
+
+    ;; Update project total
+    (map-set projects
+      project-id
+      (merge project { current-amount: (+ (get current-amount project) amount) })
+    )
+
+    ;; Record contribution
+    (map-set contributions
+      {project-id: project-id, contributor: tx-sender}
+      {
+        amount: (+ (default-to u0 (get amount (map-get? contributions {project-id: project-id, contributor: tx-sender}))) amount),
+        block-height: block-height
+      }
+    )
+
+    (ok true)
+  )
+)
